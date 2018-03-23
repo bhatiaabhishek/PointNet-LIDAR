@@ -1,0 +1,2 @@
+model_checkpoint_path: "pointnet_new"
+all_model_checkpoint_paths: "pointnet_new"
