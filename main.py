@@ -7,7 +7,7 @@ import pykitti
 import numpy as np
 import parseTrackletXML as xmlParser
 import cv2
-#from transform_nets import input_transform_net, feature_transform_net
+from sklearn.metrics import f1_score, accuracy_score
 
 
 
@@ -18,159 +18,63 @@ import cv2
 #else:
 #    print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
-
-
-def RPN(input_layer, is_training, bn_decay=None):
-
-    with tf.variable_scope('rpn') as sc:
-        net = tf_util.conv2d(net,  128, [1,1], 
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv_rpn1', bn_decay=bn_decay)
-
-        net = tf_util.conv2d(net,  128, [1,1], 
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv_rpn2', bn_decay=bn_decay)
-        net = tf_util.conv2d(net,  128, [1,1], 
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv_rpn3', bn_decay=bn_decay)
-        net = tf_util.conv2d(net,  128, [1,1], 
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv_rpn4', bn_decay=bn_decay)
-
-        
-    net = tf_util.fully_connected(net, 256, bn=True, is_training=is_training,
-                                  scope='fc2', bn_decay=bn_decay)
-    net = tf_util.dropout(net, keep_prob=0.7, is_training=is_training,
-                          scope='dp2')
-    net = tf_util.fully_connected(net, 8, scope='fc3')
-
-    return net, end_points
-
-def MyModel(point_cloud, is_training, bn_decay=None):
+def input_transform_net(point_cloud, is_training, bn_decay=None, K=3):
+    """ Input (XYZ) Transform Net, input is BxNx3 gray image
+        Return:
+            Transformation matrix of size 3xK """
     batch_size = point_cloud.get_shape()[0].value
     num_point = point_cloud.get_shape()[1].value
-    end_points = {}
 
-    with tf.variable_scope('transform_net1') as sc:
-        transform = input_transform_net(point_cloud, is_training, bn_decay, K=3)
-    point_cloud_transformed = tf.matmul(point_cloud, transform)
-    input_image = tf.expand_dims(point_cloud_transformed, -1)
-
+    input_image = tf.expand_dims(point_cloud, -1)
     net = tf_util.conv2d(input_image, 64, [1,3],
                          padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training,
-                         scope='conv1', bn_decay=bn_decay)
-    net = tf_util.conv2d(net, 64, [1,1],
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv2', bn_decay=bn_decay)
-
-    with tf.variable_scope('transform_net2') as sc:
-        transform = feature_transform_net(net, is_training, bn_decay, K=64)
-    end_points['transform'] = transform
-    net_transformed = tf.matmul(tf.squeeze(net, axis=[2]), transform)
-    net_transformed = tf.expand_dims(net_transformed, [2])
-
-    net = tf_util.conv2d(net_transformed, 64, [1,1],
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv3', bn_decay=bn_decay)
+                         scope='tconv1', bn_decay=bn_decay)
     net = tf_util.conv2d(net, 128, [1,1],
                          padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training,
-                         scope='conv4', bn_decay=bn_decay)
-    net = tf_util.conv2d(net, 2048, [1,1],
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv5', bn_decay=bn_decay)
-
-    # Symmetric function: max pooling
-    net = tf_util.max_pool2d(net, [num_point,1],
-                             padding='VALID', scope='maxpool')
-    #net_tiled = tf.tile(net,[1,num_point,1,1])
-    #net_concat = tf.concat([net_transformed,net_tiled],3)
-    net = tf.reshape(net, [batch_size, -1])
-    net = tf_util.fully_connected(net, 512, bn=True, is_training=is_training,
-                                  scope='fc1', bn_decay=bn_decay)
-    net = tf_util.dropout(net, keep_prob=0.7, is_training=is_training,
-                          scope='dp1')
-    net = tf_util.fully_connected(net, 256, bn=True, is_training=is_training,
-                                  scope='fc2', bn_decay=bn_decay)
-    net = tf_util.dropout(net, keep_prob=0.7, is_training=is_training,
-                          scope='dp2')
-    net = tf_util.fully_connected(net, 256, scope='fc3')
-
-    return net, end_points
-
-
-def model_big(point_cloud, is_training, bn_decay=None):
-    batch_size = point_cloud.get_shape()[0].value
-    num_point = point_cloud.get_shape()[1].value
-    end_points = {}
-
-    with tf.variable_scope('transform_net1') as sc:
-        transform = input_transform_net(point_cloud, is_training, bn_decay, K=3)
-    point_cloud_transformed = tf.matmul(point_cloud, transform)
-    input_image = tf.expand_dims(point_cloud_transformed, -1)
-
-    net = tf_util.conv2d(input_image, 64, [1,3],
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv1', bn_decay=bn_decay)
-    net = tf_util.conv2d(net, 64, [1,1],
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv2', bn_decay=bn_decay)
-
-    with tf.variable_scope('transform_net2') as sc:
-        transform = feature_transform_net(net, is_training, bn_decay, K=64)
-    end_points['transform'] = transform
-    net_transformed = tf.matmul(tf.squeeze(net, axis=[2]), transform)
-    net_transformed = tf.expand_dims(net_transformed, [2])
-
-    net = tf_util.conv2d(net_transformed, 64, [1,1],
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv3', bn_decay=bn_decay)
-    net = tf_util.conv2d(net, 128, [1,1],
-                         padding='VALID', stride=[1,1],
-                         bn=True, is_training=is_training,
-                         scope='conv4', bn_decay=bn_decay)
+                         scope='tconv2', bn_decay=bn_decay)
     net = tf_util.conv2d(net, 1024, [1,1],
                          padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training,
-                         scope='conv5', bn_decay=bn_decay)
-
-    # Symmetric function: max pooling
+                         scope='tconv3', bn_decay=bn_decay)
     net = tf_util.max_pool2d(net, [num_point,1],
-                             padding='VALID', scope='maxpool')
-    #net_tiled = tf.tile(net,[1,num_point,1,1])
-    #net_concat = tf.concat([net_transformed,net_tiled],3)
+                             padding='VALID', scope='tmaxpool')
+
     net = tf.reshape(net, [batch_size, -1])
     net = tf_util.fully_connected(net, 512, bn=True, is_training=is_training,
-                                  scope='fc1', bn_decay=bn_decay)
-    net = tf_util.dropout(net, keep_prob=0.7, is_training=is_training,
-                          scope='dp1')
+                                  scope='tfc1', bn_decay=bn_decay)
     net = tf_util.fully_connected(net, 256, bn=True, is_training=is_training,
-                                  scope='fc2', bn_decay=bn_decay)
-    net = tf_util.dropout(net, keep_prob=0.7, is_training=is_training,
-                          scope='dp2')
-    net = tf_util.fully_connected(net, 8, scope='fc3')
+                                  scope='tfc2', bn_decay=bn_decay)
 
-    return net, end_points
+    with tf.variable_scope('transform_XYZ') as sc:
+        assert(K==3)
+        weights = tf.get_variable('weights', [256, 3*K],
+                                  initializer=tf.constant_initializer(0.0),
+                                  dtype=tf.float32)
+        biases = tf.get_variable('biases', [3*K],
+                                 initializer=tf.constant_initializer(0.0),
+                                 dtype=tf.float32)
+        biases += tf.constant([1,0,0,0,1,0,0,0,1], dtype=tf.float32)
+        transform = tf.matmul(net, weights)
+        transform = tf.nn.bias_add(transform, biases)
+
+    transform = tf.reshape(transform, [batch_size, 3, K])
+    return transform
 
 
-def model_basic(point_cloud, is_training,bn_decay=None):
+
+
+def MyModel(point_cloud, is_training,bn_decay=None):
     batch_size = point_cloud.get_shape()[0].value
     num_point = point_cloud.get_shape()[1].value
     end_points = {}
-    input_image = tf.expand_dims(point_cloud, -1)
     
     # Point functions (MLP implemented as conv2d)
+    with tf.variable_scope('transform_net1') as sc:
+        transform = input_transform_net(point_cloud, is_training, bn_decay, K=3)
+    point_cloud_transformed = tf.matmul(point_cloud, transform)
+    input_image = tf.expand_dims(point_cloud_transformed, -1)
     net = tf_util.conv2d(input_image, 64, [1,3],
                          padding='VALID', stride=[1,1],
                          bn=True, is_training=is_training,
@@ -216,7 +120,7 @@ def model_basic(point_cloud, is_training,bn_decay=None):
                                   scope='fc3', bn_decay=bn_decay)
     net_dp = tf_util.dropout(net, keep_prob=0.7, is_training=is_training,
                           scope='dp1')
-    net = tf_util.fully_connected(net_dp, 256,  activation_fn=None,  scope='fc4')
+    net = tf_util.fully_connected(net_dp, 512,  activation_fn=None,  scope='fc4')
     net_count = tf_util.fully_connected(net_dp, 8, scope='fc4_1')
     
     
@@ -293,7 +197,7 @@ def load_dataset(basedir, date,drive, num_points=2048, calibrated=False):
     # Sample x% of the point clouds
     velo_data = np.zeros((len(dataset_velo),num_points,3))
     labels = np.zeros((len(dataset_velo),8))
-    labels_bbox = np.zeros((len(dataset_velo),8,4,8)) # 4 bounding boxes per frame per class, 8 values - prob,x,y,l,w,h,yaw
+    labels_bbox = np.zeros((len(dataset_velo),8,8,8)) # 4 bounding boxes per frame per class, 8 values - prob,x,y,z,l,w,h,yaw
     class_ids = {
         'Car': 0,
         'Tram': 1,
@@ -337,7 +241,7 @@ def load_dataset(basedir, date,drive, num_points=2048, calibrated=False):
             lg = abs(t_rects[1,2] - t_rects[1,3])
             #print ( min(labels[f,class_ids[t_type]]-1,3))
             
-            labels_bbox[f,class_ids[t_type],int(min(labels[f,class_ids[t_type]]-1,3))] = np.array([1, xc, yc, zc, lg, wg, hg, abs(t_yaw)])
+            labels_bbox[f,class_ids[t_type],int(min(labels[f,class_ids[t_type]]-1,7))] = np.array([1, xc, yc, zc, lg, wg, hg, abs(t_yaw)])
         #sum_labels = sum(labels[f])
         #if (sum_labels != 0):
         #    labels[f] = labels[f]/np.sum(labels[f])
@@ -347,15 +251,7 @@ def load_dataset(basedir, date,drive, num_points=2048, calibrated=False):
 
 
 def optimize(nn_last_layer, correct_label, learning_rate, num_classes, end_points,  net_count, count_label_pl,reg_weight=0.001, use_l2_loss=True):
-    """
-    Build the TensorFLow loss and optimizer operations.
-    :param nn_last_layer: TF Tensor of the last layer in the neural network
-    :param correct_label: TF Placeholder for the correct label image
-    :param learning_rate: TF Placeholder for the learning rate
-    :param num_classes: Number of classes to classify
-    :return: Tuple of (logits, train_op, cross_entropy_loss)
-    """
-    # TODO: Implement function
+    
     print (nn_last_layer.shape)
     print (correct_label.shape)
     logits_count = tf.reshape(net_count, (-1,num_classes),name='logits_count')
@@ -374,32 +270,12 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes, end_point
 
 
     
-    ## Enforce the transformation as orthogonal matrix
-    #transform = end_points['transform'] # BxKxK
-    #K = transform.get_shape()[1].value
-    #mat_diff = tf.matmul(transform, tf.transpose(transform, perm=[0,2,1]))
-    #mat_diff -= tf.constant(np.eye(K), dtype=tf.float32)
-    #mat_diff_loss = tf.nn.l2_loss(mat_diff) 
-    #tf.summary.scalar('mat loss', mat_diff_loss)
 
     return logits, train_op, loss, logits_count
 
 
 def train_nn_one_epoch(sess, current_data, current_label, batch_size, num_batches, num_points, train_op, cross_entropy_loss, point_cloud_pl, correct_label, is_training_pl, train_writer, merged, logits, count_label_pl, current_label_count):
-    """
-    Train neural network and print out the loss during training.
-    :param sess: TF Session
-    :param epochs: Number of epochs
-    :param batch_size: Batch size
-    :param get_batches_fn: Function to get batches of training data.  Call using get_batches_fn(batch_size)
-    :param train_op: TF Operation to train the neural network
-    :param cross_entropy_loss: TF Tensor for the amount of loss
-    :param input_image: TF Placeholder for input images
-    :param correct_label: TF Placeholder for label images
-    :param keep_prob: TF Placeholder for dropout keep probability
-    :param learning_rate: TF Placeholder for learning rate
-    """
-    # TODO: Implement function
+    
     total_loss = 0
     for batch in range(num_batches):
         start_idx = batch*batch_size
@@ -432,7 +308,7 @@ def eval_nn_one_epoch(sess, current_data, current_label, batch_size, num_batches
 def run(train=True):
     num_classes = 8  
     num_point = 2048*2
-    data_dir = '../data'
+    data_dir = './data'
     runs_dir = './runs'
     epochs = 50
     batch_size = 32 
@@ -440,7 +316,7 @@ def run(train=True):
     if (train == True):
         point_cloud_pl = tf.placeholder(tf.float32, shape=(batch_size, num_point, 3),name = 'point_cloud_pl')
         count_label_pl = tf.placeholder(tf.float32, shape=(batch_size,num_classes), name='count_label_pl')
-        correct_label = tf.placeholder(tf.float32, shape=(batch_size,num_classes,4,8),name='correct_label')
+        correct_label = tf.placeholder(tf.float32, shape=(batch_size,num_classes,8,8),name='correct_label')
         is_training_pl = tf.placeholder(tf.bool, shape=(),name='is_training_pl')
 
         learning_rate = tf.constant(0.001)
@@ -476,7 +352,7 @@ def run(train=True):
             train_label_count_data = shuffled_label_count[num_test_data:]
 
 
-            output_layer, end_points, net_count = model_basic(point_cloud_pl, is_training_pl) 
+            output_layer, end_points, net_count = MyModel(point_cloud_pl, is_training_pl) 
             logits, train_op, cross_entropy_loss, logits_count = optimize(output_layer, correct_label, learning_rate, num_classes, end_points,net_count, count_label_pl)
             tf.summary.scalar('loss', cross_entropy_loss)
 
@@ -499,13 +375,13 @@ def run(train=True):
                 loss = train_nn_one_epoch(sess, current_data,  current_labels, batch_size, num_batches, num_point, train_op, cross_entropy_loss, point_cloud_pl, correct_label, is_training_pl, train_writer,merged, logits, count_label_pl, current_label_count)
                 print("Epoch {}/{}...".format(epoch+1, epochs), "Training Loss: {:.4f}...".format(loss))
   
-                # Use test data to validate
-                current_data = test_data
-                current_labels = test_label_data
-                current_label_count = test_label_count_data
-                num_batches = current_data.shape[0]//batch_size
-                test_loss = eval_nn_one_epoch(sess, current_data, current_labels, batch_size, num_batches, num_point, train_op, cross_entropy_loss, point_cloud_pl, correct_label, is_training_pl, test_writer,merged, logits, count_label_pl, current_label_count) 
-                print ("Mean test loss on test data = ", test_loss)
+                ## Use test data to validate
+                #current_data = test_data
+                #current_labels = test_label_data
+                #current_label_count = test_label_count_data
+                #num_batches = current_data.shape[0]//batch_size
+                #test_loss = eval_nn_one_epoch(sess, current_data, current_labels, batch_size, num_batches, num_point, train_op, cross_entropy_loss, point_cloud_pl, correct_label, is_training_pl, test_writer,merged, logits, count_label_pl, current_label_count) 
+                #print ("Mean test loss on test data = ", test_loss)
             
 
             # Save model
@@ -514,7 +390,7 @@ def run(train=True):
     else:        
             # Test
             date = '2011_09_26'
-            drive = '0091'
+            drive = '0009'
             velo_data,label_count, labels, calib_data = load_dataset(data_dir,date, drive,num_point, True)
 
             frame_idxs = np.arange(0,velo_data.shape[0])
@@ -543,7 +419,7 @@ def run(train=True):
             pred, count_pred = sess.run([logits, logits_count],feed_dict={point_cloud_pl:current_data[74:106,:,:], correct_label:current_labels[74:106], count_label_pl:current_label_count[74:106], is_training_pl:False})
             print (pred.shape)
             #print (loss)
-            prediction  = pred.reshape(32,num_classes,4,8)
+            prediction  = pred.reshape(32,num_classes,8,8)
             count_prediction = count_pred.reshape(32, num_classes)
 
             P_rect_30 = calib_data.P_rect_30
@@ -552,7 +428,7 @@ def run(train=True):
             for j in range(num_classes):
                 print("class = ", j)
                 print("count = ", count_prediction[-1][j])
-                for b in range(4):
+                for b in range(8):
                     print("confidence = ", prediction[-1][j][b][0])
                     print("x y l w h yaw =", prediction[-1][j][b][1:])
                     print("GT =", current_labels[105][j][b][0:])
@@ -567,23 +443,71 @@ def run(train=True):
                 'Sitter',
                 'Misc'
             ]
-
+            y_true = []
+            y_pred = []
+            cls_pred = []
+            cls_org = []
+            count_error = []
+            BB_pred = []
+            BB_org = []
+            count_error_f = open("error_file.txt", 'w')
             for f in range(0,current_data.shape[0],32):
+                if (current_data[f:f+32,:,:].shape[0] !=32):
+                    break
                 pred, count_pred = sess.run([logits, logits_count],feed_dict={point_cloud_pl:current_data[f:f+32,:,:], correct_label:current_labels[f:f+32], count_label_pl:current_label_count[f:f+32], is_training_pl:False})
                 count_pred.reshape((32,num_classes))
                 count_org = current_label_count[f:f+32].reshape(32,num_classes)
-                prediction  = pred.reshape(32,num_classes,4,8)
+                prediction  = pred.reshape(32,num_classes,8,8)
+                label_org = current_labels[f:f+32]
+                #print("Processing "+ str(f)+ " to " + str(f+31))
                 for i in range(32):
                     img = cv2.imread(data_dir+"/"+date+"/"+date+"_drive_"+drive+"_sync/image_03/data/"+str(f+i).zfill(10)+".png")
+                    cls_list = []
+                    cls_org_list = []
+                    BB_pred_f = []
+                    BB_org_f = []
                     for j in range(num_classes):
                         count = int(round(count_pred[i][j]))
                         count_ref = count_org[i][j]
-                        cv2.putText(img, class_ids[j] + " = " + str(count)+ "  Org: "+str(count_ref),(125,125+(j*50)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0),2)
-                        for b in range(4):
-                            if (prediction[i][j][b][0] > 0.7):
+                        count_error.append(np.abs(count - count_ref))
+                        y_true.append(count_ref)
+                        y_pred.append(count)
+                        if (count > 0):
+                            cls_list.append(1)
+                        else:
+                            cls_list.append(0)
+                        if (count_ref >0):
+                            cls_org_list.append(1)
+                        else:
+                            cls_org_list.append(0)
+                        cv2.putText(img, class_ids[j] + " = " + str(count)+ "  Org: "+str(count_ref),(25,125+(j*50)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),3)
+                        BB_pred_cls = []
+                        BB_org_cls = []
+                        for b in range(8):
+                            c_org = label_org[i][j][b][0]
+                            x_org = label_org[i][j][b][1]
+                            y_org = label_org[i][j][b][2]
+                            z_org = label_org[i][j][b][3]
+                            l_org = label_org[i][j][b][4]
+                            w_org = label_org[i][j][b][5]
+                            h_org = label_org[i][j][b][6]
+
+                            c = prediction[i][j][b][0]
+                            x_3d = prediction[i][j][b][1]
+                            y_3d = prediction[i][j][b][2]
+                            z_3d = prediction[i][j][b][3]
+                            l = prediction[i][j][b][4]
+                            w = prediction[i][j][b][5]
+                            h = prediction[i][j][b][6]
+
+                            BB_pred_cls.append([c, x_3d, y_3d, z_3d, l, w, h])
+                            BB_org_cls.append([c_org, x_org, y_org, z_org, l_org, w_org, h_org])
+                            if (label_org[i][j][b][0] == 1):
                                 x_3d = prediction[i][j][b][1]
                                 y_3d = prediction[i][j][b][2]
                                 z_3d = prediction[i][j][b][3]
+                                l = prediction[i][j][b][4]
+                                w = prediction[i][j][b][5]
                                 h = prediction[i][j][b][6]
           
 
@@ -592,15 +516,62 @@ def run(train=True):
                                 x_cam = P_rect_30.dot(R_rect_00).dot(T_cam3_velo).dot(X_homo.T)
                                 x_cam_homo = x_cam/x_cam[-1]
                                 x_cam = x_cam_homo[0:2]
-                                print(x_cam)
-                                cv2.circle(img,(int(x_cam[0]),int(x_cam[1])),10, (0,0,255),-1)
-
+                                #if (f+i == 148):
+                                #    print ( "class, box = "+class_ids[j]+ " , "+str(b))
+                                #    pred_str = "Pred Box Coord = " +  "("+str(x_3d)+","+str(y_3d)+","+str(z_3d)+")"
+                                #    #cv2.putText(img, pred_str,(250,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),3)
+                                #    pred_str_dim = "Pred (l,w,h) = " + "("+str(l)+","+str(w)+","+str(h)+")"
+                                #    #cv2.putText(img, pred_str_dim,(250,100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),3)
+                                #    org_str_coord = "Label Coord = " + "("+str(x_org)+","+str(y_org)+","+str(z_org)+")"
+                                #    #cv2.putText(img, org_str_coord,(250,150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),3)
+                                #    org_str_dim = "Label Dim = " + "("+str(l_org)+","+str(w_org)+","+str(h_org)+")"
+                                #    #cv2.putText(img, org_str_dim,(250,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),3)
+                                #    print(pred_str)
+                                #    print(pred_str_dim)
+                                #    print(org_str_coord)
+                                #    print(org_str_dim)
+ 
+                                #print(x_cam)
+                                #cv2.circle(img,(int(x_cam[0]),int(x_cam[1])),10, (0,0,255),-1)
+                        BB_pred_f.append(BB_pred_cls)
+                        BB_org_f.append(BB_org_cls)
                     cv2.imwrite("output/img_"+str(f+i)+".png",img)
-            # TODO: Save inference data using helper.save_inference_samples
-            #  helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
+                    cls_pred.append(cls_list)
+                    cls_org.append(cls_org_list)
+                    BB_pred.append(BB_pred_f)
+                    BB_org.append(BB_org_f)
+                    #count_error_f.write(str(count_error))
+                    #count_error_f.write("\n")
+                    #count_error = []
+ 
 
-            # OPTIONAL: Apply the trained model to a video
+            print("Count error % = " ,np.sum(count_error)/np.sum(y_true))
+            cls_pred_arr = np.array(cls_pred) 
+            cls_org_arr = np.array(cls_org)
+            cls_error = np.abs(cls_pred_arr-cls_org_arr)
+            cls_error_per_class = np.sum(cls_error, axis=0)
+            print("Num Cls Error per class = ", cls_error_per_class, " in ", cls_error.shape[0], " frames")
+            f1_score_p_class = []
+            acc_cls_p_class = []
+            
 
+            for i in range(num_classes):
+                f1 = f1_score(cls_org_arr[:,i].reshape(-1),cls_pred_arr[:,i].reshape(-1))
+                f1_score_p_class.append(f1)
+                acc_cls = accuracy_score(cls_org_arr[:,i].reshape(-1),cls_pred_arr[:,i].reshape(-1))
+                acc_cls_p_class.append(acc_cls)
+
+            acc_count = accuracy_score(y_true,y_pred)
+            print("f1 score per class = ", f1_score_p_class)
+            print("Classification accuracy per class = ", acc_cls_p_class)
+            print("Counting accuracy across all classes = ", acc_count)
+        
+            np.save("BB_pred.txt", BB_pred)
+            np.save("BB_org.txt", BB_org)
+            np.save("f1_score.txt", f1_score_p_class)
+            np.save("cls_acc_p_class.txt", acc_cls_p_class)
+
+            count_error_f.close()
 
 if __name__ == '__main__':
     if (len(sys.argv) > 1):
