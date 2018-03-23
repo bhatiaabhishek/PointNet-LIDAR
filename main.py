@@ -422,16 +422,16 @@ def run(train=True):
             prediction  = pred.reshape(32,num_classes,8,8)
             count_prediction = count_pred.reshape(32, num_classes)
 
-            P_rect_30 = calib_data.P_rect_30
-            R_rect_00 = calib_data.R_rect_00
-            T_cam3_velo = calib_data.T_cam3_velo
-            for j in range(num_classes):
-                print("class = ", j)
-                print("count = ", count_prediction[-1][j])
-                for b in range(8):
-                    print("confidence = ", prediction[-1][j][b][0])
-                    print("x y l w h yaw =", prediction[-1][j][b][1:])
-                    print("GT =", current_labels[105][j][b][0:])
+            #P_rect_30 = calib_data.P_rect_30
+            #R_rect_00 = calib_data.R_rect_00
+            #T_cam3_velo = calib_data.T_cam3_velo
+            #for j in range(num_classes):
+            #    print("class = ", j)
+            #    print("count = ", count_prediction[-1][j])
+            #    for b in range(8):
+            #        print("confidence = ", prediction[-1][j][b][0])
+            #        print("x y l w h yaw =", prediction[-1][j][b][1:])
+            #        print("GT =", current_labels[105][j][b][0:])
 
             class_ids = [
                 'Car',
